@@ -1,0 +1,22 @@
+services:
+  nginx:
+    build: .
+    image: apinginx:latest
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # 默认 letsencrypt 命名卷（正式环境）；本地自签可设 CERTS_MOUNT=./dev-certs
+      - ${CERTS_MOUNT:-letsencrypt}:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ${CERTS_MOUNT:-letsencrypt}:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    # 使用：scripts/issue-cert.sh / scripts/renew-certs.sh，或手动 compose run
+
+volumes:
+  letsencrypt:
+  certbot-webroot:
