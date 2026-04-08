@@ -20,7 +20,7 @@
 3. 申请 Let’s Encrypt 证书并**重启** Nginx（重启后入口脚本会生成 **80 → HTTPS 跳转** 与 **443 TLS** 配置）：
 
    ```bash
-   export CERTBOT_EMAIL='你的邮箱'
+   export CERTBOT_EMAIL='8394420@qq.com'
    ./scripts/issue-cert.sh
    ```
 

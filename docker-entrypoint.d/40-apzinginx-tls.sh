@@ -37,9 +37,15 @@ server {
     ssl_prefer_server_ciphers off;
     root /usr/share/nginx/html;
     index index.html;
+    
     location / {
-        try_files $uri $uri/ =404;
+        proxy_pass http://127.0.0.1:3000; # 转发到 New-API 容器
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
+    
     location /health {
         access_log off;
         default_type text/plain;
