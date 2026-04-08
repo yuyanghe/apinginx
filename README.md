@@ -17,16 +17,28 @@
    docker compose up -d nginx
    ```
 
+   因为 Compose 里对 `nginx` 写了 `build: .`，**第一次（或镜像不存在时）执行上述命令会自动在本机构建镜像**，不必先单独跑 `docker build`。若想强制按当前 Dockerfile 重新构建再起容器，可以用：`docker compose up -d --build nginx`。
+
 3. 申请 Let’s Encrypt 证书并**重启** Nginx（重启后入口脚本会生成 **80 → HTTPS 跳转** 与 **443 TLS** 配置）：
 
    ```bash
-   export CERTBOT_EMAIL='8394420@qq.com'
+   export CERTBOT_EMAIL='你的邮箱'
    ./scripts/issue-cert.sh
    ```
 
-4. 验证：浏览器访问 `https://api.zxai.app`，健康检查：`curl -sS https://api.zxai.app/health`（应返回 `ok`）。
+4. 验证：浏览器访问 `https://api.zxai.app`，流量由 Nginx 反代到 **`new-api`**（即 [New-API](https://hub.docker.com/r/calciumion/new-api) 网关）；健康检查：`curl -sS https://api.zxai.app/health`（应返回 `ok`）。
+
+`docker-compose.yml` 里已包含 **`new-api`** 服务，数据目录为仓库下 **`new-api-data/`**（已在 `.gitignore` 中）。默认不映射宿主 `3000` 端口，只对内网供 Nginx 访问；若要直连网关管理界面，可取消 compose 里 `new-api` 的 `ports` 注释。正式环境请按 [官方文档](https://github.com/QuantumNous/new-api-docs) 增加 **MySQL / Redis** 等依赖并配置 `SQL_DSN`、`REDIS_CONN_STRING`。
 
 证书与私钥保存在 Compose 默认的命名卷 **`letsencrypt`**（挂载到容器内 `/etc/letsencrypt`），与 **certbot** 容器共用；**不要删卷**，否则需重新签发。
+
+### 修改 Nginx / 反代后「不生效」
+
+- **`docker-entrypoint.d/40-apzinginx-tls.sh` 会打进镜像**：改完脚本后必须 **重新构建** 再起容器，例如  
+  `docker compose up -d --build nginx`  
+  仅 `docker compose restart nginx` **不会**换新脚本。
+- **不要用 `127.0.0.1` 当反代地址**：在容器里那是 Nginx 自己，连不到宿主机或其它容器上的 API。请用 **Compose 服务名**（如 `http://new-api:3000`），或后端在宿主机时用 **`http://host.docker.internal:端口`**（本 `docker-compose.yml` 已为 Linux 加了 `extra_hosts: host-gateway`）。
+- 反代上游通过环境变量 **`APIS_UPSTREAM`** 注入（默认 `http://new-api:3000`）。**只改这个变量**时不必 `--build`，执行 `docker compose up -d nginx` 让容器用上新的环境即可。若改的是 **`40-apzinginx-tls.sh` 本身**，则必须带 **`--build`**。
 
 ### 证书续期
 
@@ -109,7 +121,7 @@ docker compose up -d
 | `docker-entrypoint.d/40-apzinginx-tls.sh` | 根据是否存在证书，生成 `conf.d` 下的 HTTP / HTTPS 片段 |
 | `nginx/nginx.conf` | Nginx 主配置（含 `conf.d` 的 `include`） |
 | `html/` | 默认站点根目录（`index.html` 等） |
-| `docker-compose.yml` | `nginx` + `certbot`，共享 `letsencrypt` 与 `certbot-webroot` |
+| `docker-compose.yml` | `new-api`（网关）+ `nginx` + `certbot`；网关数据目录 `new-api-data/` |
 | `scripts/issue-cert.sh` | 首次 `certbot certonly`（webroot）并 **restart** nginx |
 | `scripts/renew-certs.sh` | `certbot renew` 并 **reload** nginx |
 | `scripts/init-dev-certs.sh` | 本地自签，写入 `dev-certs/live/api.zxai.app/` |
@@ -123,6 +135,10 @@ docker compose up -d
 | 变量 | 说明 |
 |------|------|
 | `CERTS_MOUNT` | 证书挂载源。默认 `letsencrypt`（命名卷）；本地自签可设为 `./dev-certs` |
+| `APIS_UPSTREAM` | HTTPS/HTTP 下 `/` 反代的完整 upstream（默认 `http://new-api:3000`，与 compose 内服务名一致）。只改此项时**不必** `--build`，执行 `docker compose up -d nginx` 带上新环境即可 |
+| `NEW_API_TAG` | `new-api` 镜像标签，默认 `latest` |
+| `NEW_API_PORT` | 仅在取消 `new-api` 的 `ports` 注释时使用，默认 `3000` |
+| `TZ` | 容器时区，`new-api` 默认 `Asia/Shanghai` |
 | `HTTP_PORT` / `HTTPS_PORT` | 宿主机映射端口，默认 `80` / `443` |
 | `CERTBOT_EMAIL` | 运行 `issue-cert.sh` 时必填，Let’s Encrypt 账户邮箱 |
 | `LE_STAGING` | 设为 `1` 或 `true` 时使用 Let’s Encrypt 测试环境 |

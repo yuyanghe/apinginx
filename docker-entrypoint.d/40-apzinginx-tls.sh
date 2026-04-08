@@ -1,15 +1,18 @@
 #!/bin/sh
 set -e
 
-# 无证书：仅 80（ACME webroot + 站点），便于首次 certbot 签发。
+# 无证书：仅 80（ACME webroot + 反代），便于首次 certbot 签发。
 # 有证书：80 跳转 HTTPS + 443 TLS。
+# 上游地址用环境变量 APIS_UPSTREAM（不要用 127.0.0.1，那是容器「自己」）。
 
 SSL_DIR=/etc/letsencrypt/live/api.zxai.app
 HTTP_CONF=/etc/nginx/conf.d/10-api.zxai.app.http.conf
 HTTPS_CONF=/etc/nginx/conf.d/20-api.zxai.app.https.conf
 
+APIS_UPSTREAM="${APIS_UPSTREAM:-http://new-api:3000}"
+
 if [ -r "$SSL_DIR/fullchain.pem" ] && [ -r "$SSL_DIR/privkey.pem" ]; then
-  echo "apinginx: TLS cert found, enabling HTTPS."
+  echo "apinginx: TLS cert found, enabling HTTPS. APIS_UPSTREAM=$APIS_UPSTREAM"
   cat >"$HTTP_CONF" <<'EOF'
 server {
     listen 80;
@@ -23,7 +26,7 @@ server {
     }
 }
 EOF
-  cat >"$HTTPS_CONF" <<'EOF'
+  sed "s|__APIS_UPSTREAM__|${APIS_UPSTREAM}|g" >"$HTTPS_CONF" <<'EOF'
 server {
     listen 443 ssl;
     http2 on;
@@ -35,17 +38,18 @@ server {
     ssl_session_tickets off;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
-    root /usr/share/nginx/html;
-    index index.html;
-    
+
     location / {
-        proxy_pass http://127.0.0.1:3000; # 转发到 New-API 容器
+        proxy_pass __APIS_UPSTREAM__;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
-    
+
     location /health {
         access_log off;
         default_type text/plain;
@@ -54,9 +58,9 @@ server {
 }
 EOF
 else
-  echo "apinginx: no TLS cert yet; HTTP only (use certbot, then reload nginx)."
+  echo "apinginx: no TLS cert yet; HTTP only. APIS_UPSTREAM=$APIS_UPSTREAM"
   rm -f "$HTTPS_CONF"
-  cat >"$HTTP_CONF" <<'EOF'
+  sed "s|__APIS_UPSTREAM__|${APIS_UPSTREAM}|g" >"$HTTP_CONF" <<'EOF'
 server {
     listen 80;
     server_name api.zxai.app;
@@ -64,10 +68,15 @@ server {
         root /var/www/certbot;
         allow all;
     }
-    root /usr/share/nginx/html;
-    index index.html;
     location / {
-        try_files $uri $uri/ =404;
+        proxy_pass __APIS_UPSTREAM__;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
     location /health {
         access_log off;

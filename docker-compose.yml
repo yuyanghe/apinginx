@@ -1,12 +1,32 @@
 services:
+  # New-API 大模型网关（QuantumNous / one-api 系）。镜像与说明见 https://hub.docker.com/r/calciumion/new-api
+  # 生产建议再配 MySQL + Redis，见官方文档；此处为可启动的最小示例（单容器 + 本地 /data）。
+  new-api:
+    image: calciumion/new-api:${NEW_API_TAG:-latest}
+    restart: unless-stopped
+    expose:
+      - "3000"
+    # 需要宿主机直连管理后台（例如 http://服务器IP:3000）时取消注释：
+    # ports:
+    #   - "${NEW_API_PORT:-3000}:3000"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./new-api-data:/data
+
   nginx:
     build: .
     image: apinginx:latest
+    depends_on:
+      - new-api
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
+    environment:
+      APIS_UPSTREAM: ${APIS_UPSTREAM:-http://new-api:3000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      # 默认 letsencrypt 命名卷（正式环境）；本地自签可设 CERTS_MOUNT=./dev-certs
       - ${CERTS_MOUNT:-letsencrypt}:/etc/letsencrypt:ro
       - certbot-webroot:/var/www/certbot
 
@@ -15,7 +35,6 @@ services:
     volumes:
       - ${CERTS_MOUNT:-letsencrypt}:/etc/letsencrypt
       - certbot-webroot:/var/www/certbot
-    # 使用：scripts/issue-cert.sh / scripts/renew-certs.sh，或手动 compose run
 
 volumes:
   letsencrypt:
