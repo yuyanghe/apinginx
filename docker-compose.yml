@@ -11,6 +11,7 @@ services:
     #   - "${NEW_API_PORT:-3000}:3000"
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      BASE_URL: https://api.zxai.app   # 强制指定外部访问地址
     volumes:
       - ./new-api-data:/data
 
